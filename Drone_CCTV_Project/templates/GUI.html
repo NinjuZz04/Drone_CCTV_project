@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>DRONE CCTV</title>
+ <script src="https://sdk.amazonaws.com/js/aws-sdk-2.1250.0.min.js"></script>
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+ 
+ <script>
+    // 💡 ระบบป้องกันการกระพริบ: เช็คคุกกี้ตั้งแต่เสี้ยววินาทีแรกก่อนวาดหน้าเว็บ
+    if (localStorage.getItem('drone_auth') === 'GRANTED') {
+        document.documentElement.classList.add('logged-in');
+    }
+ </script>
+
+ <style>
+ @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+ * { box-sizing: border-box; }
+
+ :root {
+ --bg-color: #050a0f;
+ --panel-bg: #0b151e;
+ --border-color: #1a3c54;
+ --text-color: #70b8d9;
+ --alert-color: #ff3b3b;
+ --safe-color: #00ffaa;
+ --warning-color: #ff9800;
+ --takeoff-color: #00e5ff;
+ }
+
+ body { 
+ background-color: var(--bg-color); color: var(--text-color); 
+ font-family: 'Share Tech Mono', monospace; margin: 0; min-height: 100vh;
+ overflow-x: hidden; overflow-y: auto;
+ }
+
+ /* ================= LOGIN SCREEN STYLES ================= */
+ #login-screen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at center, #0b151e 0%, #000 100%);
+    z-index: 9999; display: flex; justify-content: center; align-items: center;
+    flex-direction: column;
+ }
+ .login-box {
+    background: rgba(11, 21, 30, 0.8); border: 1px solid var(--border-color);
+    padding: 40px; text-align: center; width: 90%; max-width: 450px;
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.1);
+ }
+ .login-title { color: var(--takeoff-color); margin: 0 0 5px 0; letter-spacing: 2px; }
+ .login-sub { color: var(--border-color); margin-bottom: 25px; font-size: 12px; letter-spacing: 1px; }
+ #pass-input {
+    width: 100%; padding: 12px; background: #020508; border: 1px solid var(--border-color);
+    color: var(--takeoff-color); font-family: 'Share Tech Mono', monospace;
+    font-size: 20px; text-align: center; margin-bottom: 15px; outline: none;
+    letter-spacing: 8px; text-transform: uppercase; transition: all 0.3s;
+ }
+ #pass-input:focus { border-color: var(--takeoff-color); box-shadow: 0 0 15px rgba(0, 229, 255, 0.3); }
+ .login-btn {
+    width: 100%; background: transparent; border: 1px solid var(--safe-color);
+    color: var(--safe-color); padding: 12px; font-family: 'Share Tech Mono', monospace;
+    font-size: 16px; cursor: pointer; font-weight: bold; letter-spacing: 2px; transition: 0.3s;
+ }
+ .login-btn:hover { background: rgba(0, 255, 170, 0.1); box-shadow: 0 0 15px rgba(0, 255, 170, 0.5); }
+ .login-error { color: var(--alert-color); margin-top: 15px; font-size: 14px; min-height: 20px; font-weight: bold; letter-spacing: 1px;}
+
+ /* ================= MAIN APP STYLES ================= */
+ #app-content { display: none; flex-direction: column; min-height: 100vh; }
+
+ /* 💡 กฎ CSS พิเศษ: เมื่อเข้าสู่ระบบสำเร็จ ให้สลับหน้าต่างทันทีแบบไม่กระพริบ */
+ html.logged-in #login-screen { display: none !important; }
+ html.logged-in #app-content { display: flex !important; }
+
+ .top-bar {
+ min-height: 40px; height: auto; background: #020508; border-bottom: 1px solid var(--border-color);
+ display: flex; justify-content: space-between; align-items: center; padding: 10px 20px;
+ font-size: 14px; letter-spacing: 2px; flex-shrink: 0; flex-wrap: wrap; gap: 10px;
+ }
+ .status-badge { background: #112230; padding: 3px 10px; border: 1px solid var(--border-color); }
+ .logout-btn { background: transparent; border: 1px solid var(--alert-color); color: var(--alert-color); font-family: 'Share Tech Mono'; padding: 3px 10px; font-size: 12px; cursor: pointer; transition: 0.2s; }
+ .logout-btn:hover { background: rgba(255, 59, 59, 0.2); box-shadow: 0 0 8px rgba(255, 59, 59, 0.5); }
+
+ .dashboard {
+ display: grid; grid-template-columns: 350px 1fr; gap: 15px; padding: 15px; 
+ min-height: calc(100vh - 100px); 
+ }
+
+ .panel {
+ background-color: var(--panel-bg); border: 1px solid var(--border-color);
+ position: relative; display: flex; flex-direction: column; overflow: hidden;
+ }
+ .panel-header {
+ background: rgba(26, 60, 84, 0.4); padding: 5px 10px; font-size: 12px;
+ border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; flex-shrink: 0;
+ }
+
+ .control-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 10px; background: rgba(0, 0, 0, 0.3); border-bottom: 1px solid var(--border-color); }
+ .ctrl-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 5px; font-family: 'Share Tech Mono', monospace; font-size: 11px; cursor: pointer; transition: all 0.2s; text-align: center; font-weight: bold; }
+ .ctrl-btn:hover { background: rgba(112, 184, 217, 0.2); box-shadow: 0 0 8px rgba(112, 184, 217, 0.6); }
+ .btn-active { border-color: var(--safe-color); color: var(--safe-color); }
+ .btn-active:hover { background: rgba(0, 255, 170, 0.1); box-shadow: 0 0 8px rgba(0, 255, 170, 0.6); }
+ .btn-warning { border-color: var(--warning-color); color: var(--warning-color); }
+ .btn-warning:hover { background: rgba(255, 152, 0, 0.1); box-shadow: 0 0 8px rgba(255, 152, 0, 0.6); }
+ .btn-danger { border-color: var(--alert-color); color: var(--alert-color); }
+ .btn-danger:hover { background: rgba(255, 59, 59, 0.1); box-shadow: 0 0 8px rgba(255, 59, 59, 0.6); }
+ .btn-takeoff { border-color: var(--takeoff-color); color: var(--takeoff-color); }
+ .btn-takeoff:hover { background: rgba(0, 229, 255, 0.1); box-shadow: 0 0 8px rgba(0, 229, 255, 0.6); }
+
+ .left-col { 
+    display: flex; flex-direction: column; gap: 15px; height: 100%; 
+    justify-content: flex-start; overflow-y: auto; padding-right: 5px;
+ }
+ .btn-panel { flex: 0 0 auto; } 
+ .radar-panel { flex: 0 0 auto; display: flex; flex-direction: column; } 
+ .imu-panel { flex: 0 0 auto; } 
+
+ #radar-container { display: flex; justify-content: center; align-items: center; position: relative; overflow: hidden; width: 100%; padding: 20px 0; }
+ canvas { display: block; max-width: 100%; height: auto; } /* 💡 ให้ Radar ยืดหยุ่นตามจอ */
+
+ .imu-grid { padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 5px; font-size: 12px; }
+ .imu-box { background: rgba(0,0,0,0.3); border: 1px solid rgba(112, 184, 217, 0.2); padding: 5px; text-align: center; }
+ .imu-val { font-size: 18px; font-weight: bold; margin-top: 2px; color: #fff; }
+
+ .right-col { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 15px; height: 100%; }
+ .cam-panel { position: relative; background: #020508; overflow: hidden; border: 1px solid var(--border-color); display: flex; flex-direction: column; }
+ .cam-panel img { width: 100%; height: 100%; object-fit: cover; flex-grow: 1; padding: 5px; }
+ .cam-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03)); background-size: 100% 4px, 6px 100%; pointer-events: none; }
+ .cam-status { position: absolute; bottom: 10px; right: 10px; font-size: 12px; background: rgba(0,0,0,0.8); padding: 2px 8px; border: 1px solid; }
+
+ .bottom-bar { min-height: 40px; height: auto; background: #081119; border-top: 1px solid var(--border-color); padding: 5px 20px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; flex-wrap: wrap; gap: 10px; }
+ .alert-box { background: rgba(255, 59, 59, 0.1); border: 1px solid var(--alert-color); color: var(--alert-color); padding: 3px 15px; font-weight: bold; display: none; margin: 0 auto; text-align: center; width: 100%; }
+
+ .modal-overlay {
+    display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.85); z-index: 1000; justify-content: center; align-items: center; padding: 10px;
+ }
+ .modal-content {
+    background: var(--panel-bg); border: 2px solid var(--takeoff-color);
+    padding: 20px; max-width: 850px; width: 100%; text-align: center;
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.3); max-height: 95vh; overflow-y: auto;
+ }
+ .close-btn { 
+    background: var(--alert-color); color: white; padding: 10px 30px; cursor: pointer; 
+    border: none; font-weight: bold; margin-top: 20px; font-family: 'Share Tech Mono'; font-size: 16px; width: 100%;
+ }
+ .close-btn:hover { background: #ff1a1a; }
+
+ /* ================= 📱 MOBILE RESPONSIVE OPTIMIZATION ================= */
+ @media screen and (max-width: 768px) {
+    .dashboard {
+        grid-template-columns: 1fr; /* Stack แบบคอลัมน์เดียวให้เต็มจอมือถือ */
+        padding: 10px;
+    }
+    .right-col {
+        grid-template-columns: 1fr; /* กล้องเรียงลงมา 1 แถวต่อ 1 กล้องให้ดูง่าย */
+        grid-template-rows: auto;
+    }
+    .cam-panel {
+        min-height: 250px; /* เพิ่มความสูงให้กล้องบนมือถือ */
+    }
+    .top-bar {
+        flex-direction: column;
+        justify-content: center;
+        text-align: center;
+    }
+    .top-bar > div {
+        width: 100%;
+        justify-content: center;
+        margin-bottom: 5px;
+    }
+    .ctrl-btn {
+        padding: 12px 5px; /* เพิ่มพื้นที่กดปุ่มให้ใหญ่ขึ้นสำหรับนิ้วมือ */
+        font-size: 12px;
+    }
+    #reportModalContent {
+        flex-direction: column !important; /* จัดหน้าต่าง Report ให้เรียงลงมา */
+    }
+    #report-img {
+        margin-bottom: 15px;
+    }
+ }
+ </style>
+</head>
+<body>
+
+ <div id="login-screen">
+    <div class="login-box">
+        <h2 class="login-title">TACTICAL COMMAND CENTER</h2>
+        <div class="login-sub">RESTRICTED AREA // AUTHENTICATION REQUIRED</div>
+        <input type="password" id="pass-input" placeholder="ENTER ACCESS CODE" autocomplete="off">
+        <button class="login-btn" onclick="verifyAccess()">[ INITIATE UPLINK ]</button>
+        <div id="login-error" class="login-error"></div>
+    </div>
+ </div>
+
+ <div id="app-content">
+     <div class="top-bar">
+     <div><span style="color: #fff; font-weight: bold;">TELLO</span> // SURVEILLANCE SYSTEM V2.0</div>
+     
+     <div style="display: flex; gap: 10px; align-items: center; justify-content: center;">
+        <div class="status-badge" id="mode-badge" style="color: var(--alert-color); border-color: var(--alert-color);">SYSTEM: ARMED</div>
+        <div class="status-badge" id="action-badge" style="color: var(--takeoff-color); border-color: var(--takeoff-color);">STATUS: STANDBY</div>
+        <button class="logout-btn" onclick="logout()">[ LOGOUT ]</button>
+     </div>
+
+     <div id="status-txt" style="text-align: center;">Connecting AWS...</div>
+     </div>
+
+     <div class="dashboard">
+     
+     <div class="left-col">
+     <div class="panel btn-panel">
+     <div class="panel-header"><span>COMMAND CONTROLS</span><span>LINKED</span></div>
+     <div class="control-panel">
+     <button class="ctrl-btn btn-active" id="btn-radar" onclick="toggleRadarWeb()">[●] RADAR: ON</button>
+     <button class="ctrl-btn btn-warning" id="btn-alarm" onclick="sendAlarmCmd()">[🔊] SOUND ALARM</button>
+     <button class="ctrl-btn btn-takeoff" onclick="forcePatrol()">🚀 DRONE TAKEOFF</button>
+     <button class="ctrl-btn btn-danger" onclick="droneLand()">🛬 DRONE LAND</button>
+     </div>
+     </div>
+
+     <div class="panel radar-panel">
+     <div class="panel-header"><span>RADAR SCANNER</span><span id="radar-dist">00.0 CM</span></div>
+     <div id="radar-container"><canvas id="radarCanvas" width="340" height="170"></canvas></div>
+     </div>
+
+     <div class="panel imu-panel">
+     <div class="panel-header"><span>DRONE IMU & TELEMETRY</span><span>ACTIVE</span></div>
+     <div class="imu-grid">
+     <div class="imu-box">ALTITUDE<div class="imu-val" id="imu-alt">0.0m</div></div>
+     <div class="imu-box">BATTERY<div class="imu-val" id="imu-bat" style="color: #00ffaa;">100%</div></div>
+     <div class="imu-box">PITCH<div class="imu-val" id="imu-pitch">0°</div></div>
+     <div class="imu-box">ROLL<div class="imu-val" id="imu-roll">0°</div></div>
+     <div class="imu-box" style="grid-column: span 2;">YAW HEADING<div class="imu-val" id="imu-yaw">0°</div></div>
+     </div>
+     </div>
+
+     <div class="panel btn-panel">
+     <button class="ctrl-btn btn-takeoff" style="width: 100%; font-size: 14px; padding: 12px; letter-spacing: 1px;" onclick="openReport()">[🗂️ VIEW INCIDENT LOGS]</button>
+     </div>
+     </div> 
+
+     <div class="right-col">
+     <div class="panel cam-panel" id="cam1">
+     <div class="panel-header"><span>CAM 1 / ANGLE 1 (FRONT)</span><span class="time-txt">00:00:00</span></div>
+     <img src="https://via.placeholder.com/640x480/0a1118/1a3c54?text=NO+SIGNAL" alt="Angle 1" id="img-cap0">
+     <div class="cam-overlay"></div><div class="cam-status" id="status-cap0" style="color: var(--border-color); border-color: var(--border-color);">STANDBY</div>
+     </div>
+
+     <div class="panel cam-panel">
+     <div class="panel-header"><span>CAM 2 / ANGLE 2 (RIGHT)</span><span class="time-txt">00:00:00</span></div>
+     <img src="https://via.placeholder.com/640x480/0a1118/1a3c54?text=NO+SIGNAL" alt="Angle 2" id="img-cap1">
+     <div class="cam-overlay"></div><div class="cam-status" id="status-cap1" style="color: var(--border-color); border-color: var(--border-color);">STANDBY</div>
+     </div>
+
+     <div class="panel cam-panel">
+     <div class="panel-header"><span>CAM 3 / ANGLE 3 (BACK)</span><span class="time-txt">00:00:00</span></div>
+     <img src="https://via.placeholder.com/640x480/0a1118/1a3c54?text=NO+SIGNAL" alt="Angle 3" id="img-cap2">
+     <div class="cam-overlay"></div><div class="cam-status" id="status-cap2" style="color: var(--border-color); border-color: var(--border-color);">STANDBY</div>
+     </div>
+
+     <div class="panel cam-panel">
+     <div class="panel-header"><span>CAM 4 / ANGLE 4 (LEFT)</span><span class="time-txt">00:00:00</span></div>
+     <img src="https://via.placeholder.com/640x480/0a1118/1a3c54?text=NO+SIGNAL" alt="Angle 4" id="img-cap3">
+     <div class="cam-overlay"></div><div class="cam-status" id="status-cap3" style="color: var(--border-color); border-color: var(--border-color);">STANDBY</div>
+     </div>
+     </div>
+     </div>
+
+     <div class="bottom-bar">
+     <div style="font-size: 12px; color: #555; text-align: center; width: 100%;">NETWORK: SECURE ENCRYPTION | MQTT ACTIVE</div>
+     <div class="alert-box" id="main-alert">⚠️ INTRUDER DETECTED! GUARD DOG MISSION INITIATED ⚠️</div>
+     <div style="font-size: 12px; text-align: center; width: 100%;">AWS IOT REGION: AP-SOUTHEAST-1</div>
+     </div>
+ </div>
+
+ <div id="reportModal" class="modal-overlay">
+    <div class="modal-content">
+        <h2 style="color: var(--takeoff-color); margin: 0 0 15px 0; letter-spacing: 2px;">🛡️ INCIDENT REPORT : 360° THREAT SCAN</h2>
+        <div id="reportModalContent" style="display: flex; gap: 20px; text-align: left;">
+            <div style="flex: 2;">
+                <img id="report-img" src="" alt="NO INCIDENT DATA FOUND" style="width: 100%; border: 2px solid var(--border-color); filter: contrast(1.1) sepia(0.2);">
+            </div>
+            <div style="flex: 1; background: #081119; border: 1px solid var(--border-color); padding: 15px; font-size: 14px; color: var(--text-color);">
+                <h3 style="margin-top: 0; color: var(--alert-color); border-bottom: 1px solid #333; padding-bottom: 5px;">> THREAT DATA</h3>
+                <div style="margin-bottom: 20px; line-height: 1.8;">
+                    <span style="color: #fff;">TIME:</span> <span id="rep-time">--</span><br>
+                    <span style="color: #fff;">RADAR DIST:</span> <span id="rep-dist" style="color: var(--alert-color); font-weight: bold; font-size: 16px;">--</span><br>
+                    <span style="color: #fff;">RADAR ANGLE:</span> <span id="rep-angle" style="color: var(--warning-color); font-weight: bold;">--</span>
+                </div>
+                <h3 style="margin-top: 0; color: var(--safe-color); border-bottom: 1px solid #333; padding-bottom: 5px;">> DRONE TELEMETRY</h3>
+                <div style="line-height: 1.8;">
+                    <span style="color: #fff;">BATTERY:</span> <span id="rep-bat">--</span><br>
+                    <span style="color: #fff;">ALTITUDE:</span> <span id="rep-alt">--</span><br>
+                    <span style="color: #fff;">PITCH:</span> <span id="rep-pitch">--</span><br>
+                    <span style="color: #fff;">ROLL:</span> <span id="rep-roll">--</span><br>
+                    <span style="color: #fff;">YAW:</span> <span id="rep-yaw">--</span>
+                </div>
+            </div>
+        </div>
+        <button class="close-btn" onclick="closeReport()">[X] CLOSE REPORT</button>
+    </div>
+ </div>
+
+ <script>
+ // ================= LOGIN SYSTEM =================
+ const ACCESS_CODE = "1234"; 
+
+ // 💡 สั่งให้เว็บโหลดข้อมูล AWS ให้เสร็จก่อน แล้วค่อยรันระบบ
+ window.onload = function() {
+     if (localStorage.getItem('drone_auth') === 'GRANTED') {
+        initSystem();
+     }
+ };
+
+ function verifyAccess() {
+    const passInput = document.getElementById('pass-input');
+    const errorMsg = document.getElementById('login-error');
+    
+    if (passInput.value.toUpperCase() === ACCESS_CODE) {
+        localStorage.setItem('drone_auth', 'GRANTED');
+        document.documentElement.classList.add('logged-in'); 
+        initSystem();
+    } else {
+        errorMsg.innerText = "ACCESS DENIED: INVALID CODE";
+        passInput.value = "";
+        passInput.style.borderColor = "var(--alert-color)";
+        setTimeout(() => { 
+            errorMsg.innerText = ""; 
+            passInput.style.borderColor = "var(--border-color)";
+        }, 2000);
+    }
+ }
+
+ function logout() {
+    localStorage.removeItem('drone_auth'); 
+    location.reload(); 
+ }
+
+ document.getElementById('pass-input').addEventListener('keypress', function (e) {
+    if (e.key === 'Enter') verifyAccess();
+ });
+
+
+ // ================= DASHBOARD SYSTEM =================
+ let isRadarOn = true;
+ let systemArmed = true; 
+ let globalMqttClient = null; 
+
+ function openReport() {
+    document.getElementById('reportModal').style.display = 'flex';
+    const currentStatus = document.getElementById('action-badge').innerText;
+    
+    if (currentStatus !== "STATUS: STANDBY") {
+        document.getElementById('report-img').src = "https://via.placeholder.com/640x480/081119/00e5ff?text=MISSION+IN+PROGRESS...+PLEASE+WAIT";
+    } else {
+        // 💡 แก้ไข API: ลบ http://127.0.0.1:5000 ออก ใช้แบบ Relative Path ให้มันรู้ IP Cloud อัตโนมัติ
+        document.getElementById('report-img').src = '/incident_report?' + new Date().getTime();
+    }
+
+    fetch('/incident_data').then(res => res.json()).then(data => {
+        document.getElementById('rep-time').innerText = data.time;
+        document.getElementById('rep-dist').innerText = data.dist !== "MANUAL" ? data.dist + " CM" : "MANUAL (USER TRIGGER)";
+        document.getElementById('rep-angle').innerText = data.angle !== "MANUAL" ? data.angle + "°" : "N/A";
+        document.getElementById('rep-bat').innerText = data.battery + "%";
+        document.getElementById('rep-alt').innerText = data.altitude;
+        document.getElementById('rep-pitch').innerText = data.pitch;
+        document.getElementById('rep-roll').innerText = data.roll;
+        document.getElementById('rep-yaw').innerText = data.yaw;
+    }).catch(err => console.log("No incident data"));
+ }
+
+ function closeReport() { document.getElementById('reportModal').style.display = 'none'; }
+
+ function toggleRadarWeb() {
+    let payload = isRadarOn ? "{\"status\": \"DISARMED\"}" : "{\"status\": \"ARMED\"}";
+    if(globalMqttClient && globalMqttClient.isConnected()) {
+        let message = new Paho.MQTT.Message(payload);
+        message.destinationName = "drone/config";
+        globalMqttClient.send(message);
+    }
+ }
+
+ function updateRadarUI(armed) {
+    isRadarOn = armed; systemArmed = armed;
+    const btn = document.getElementById('btn-radar');
+    const badge = document.getElementById('mode-badge');
+    const cam1 = document.getElementById('cam1');
+    if(armed) {
+        btn.className = "ctrl-btn btn-active"; btn.innerText = "[●] RADAR: ON";
+        badge.innerText = "SYSTEM: ARMED"; badge.style.color = "var(--alert-color)"; badge.style.borderColor = "var(--alert-color)"; cam1.style.borderColor = "var(--alert-color)";
+    } else {
+        btn.className = "ctrl-btn btn-danger"; btn.innerText = "[ ] RADAR: OFF";
+        badge.innerText = "SYSTEM: DISARMED"; badge.style.color = "var(--safe-color)"; badge.style.borderColor = "var(--safe-color)"; cam1.style.borderColor = "var(--border-color)";
+    }
+ }
+
+ function sendAlarmCmd() {
+    let payload = "{\"command\": \"ALARM_ON\"}";
+    if(globalMqttClient && globalMqttClient.isConnected()) {
+        let message = new Paho.MQTT.Message(payload);
+        message.destinationName = "drone/config";
+        globalMqttClient.send(message);
+    }
+ }
+
+ function showAlarmEffect() {
+    const btn = document.getElementById('btn-alarm');
+    btn.style.backgroundColor = 'rgba(255, 59, 59, 0.3)'; btn.style.borderColor = 'var(--alert-color)'; btn.style.color = 'var(--alert-color)'; btn.innerText = "!!! ALARM !!!";
+    setTimeout(() => { btn.style.backgroundColor = 'transparent'; btn.style.borderColor = 'var(--warning-color)'; btn.style.color = 'var(--warning-color)'; btn.innerText = "[🔊] SOUND ALARM"; }, 2000);
+ }
+
+ function forcePatrol() {
+    for(let i=0; i<4; i++) {
+        document.getElementById('img-cap'+i).src = "https://via.placeholder.com/640x480/0a1118/1a3c54?text=SCANNING...";
+        let statusTag = document.getElementById('status-cap'+i);
+        statusTag.innerText = "STANDBY";
+        statusTag.style.color = "var(--border-color)";
+        statusTag.style.borderColor = "var(--border-color)";
+    }
+    fetch('/trigger_alert', { 
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dist: "MANUAL", angle: "MANUAL" })
+    });
+ }
+
+ function droneLand() { fetch('/drone_land', { method: 'POST' }).catch(err => {}); }
+
+
+ // ================= INITIALIZE SYSTEM =================
+ function initSystem() {
+     setInterval(() => {
+        let now = new Date().toLocaleTimeString('en-US', { hour12: false });
+        document.querySelectorAll('.time-txt').forEach(el => el.innerText = now);
+        
+        // 💡 เปลี่ยนจาก http://127.0.0.1:5000/telemetry เป็น /telemetry
+        fetch('/telemetry')
+        .then(res => res.json())
+        .then(data => {
+            if(!data.error) {
+                document.getElementById('imu-bat').innerText = data.battery + "%";
+                document.getElementById('imu-alt').innerText = data.altitude;
+                document.getElementById('imu-pitch').innerText = data.pitch;
+                document.getElementById('imu-roll').innerText = data.roll;
+                document.getElementById('imu-yaw').innerText = data.yaw;
+                if(data.battery <= 20) document.getElementById('imu-bat').style.color = "var(--alert-color)";
+                else document.getElementById('imu-bat').style.color = "var(--safe-color)";
+                
+                const actionBadge = document.getElementById('action-badge');
+                actionBadge.innerText = "STATUS: " + data.mission_status;
+                if(data.mission_status !== "STANDBY") {
+                    actionBadge.style.color = "var(--warning-color)";
+                    actionBadge.style.borderColor = "var(--warning-color)";
+                    actionBadge.style.animation = "blink 1s infinite";
+                } else {
+                    actionBadge.style.color = "var(--takeoff-color)";
+                    actionBadge.style.borderColor = "var(--takeoff-color)";
+                    actionBadge.style.animation = "none";
+                }
+            }
+        }).catch(err => {});
+     }, 1000);
+
+     setInterval(() => {
+        for(let i=0; i<4; i++) {
+            fetch('/latest_image/' + i).then(res => { 
+                if(res.ok) { 
+                    document.getElementById('img-cap'+i).src = '/latest_image/' + i + '?' + new Date().getTime(); 
+                    let statusTag = document.getElementById('status-cap'+i);
+                    statusTag.innerText = "CAPTURED";
+                    statusTag.style.color = "var(--safe-color)";
+                    statusTag.style.borderColor = "var(--safe-color)";
+                } 
+            });
+        }
+     }, 3000);
+
+     drawRadar();
+     connectMQTT();
+ }
+
+ // ================= RADAR DRAWING LOGIC =================
+ const canvas = document.getElementById('radarCanvas');
+ const ctx = canvas.getContext('2d');
+ const W = canvas.width; const H = canvas.height;
+ const centerX = W / 2; const centerY = H - 5; 
+ const maxRadius = (W / 2) - 20; 
+ const maxDetectDistance = 40; const dangerZoneLimit = 20; 
+ let currentAngle = 90; let currentDist = 0; let points = []; let lastAlertTime = 0; 
+
+ function drawRadar() {
+    ctx.clearRect(0, 0, W, H);
+    if(!isRadarOn) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(0,0,W,H);
+        ctx.fillStyle = '#ff3b3b'; ctx.font = 'bold 16px Share Tech Mono'; ctx.textAlign = 'center'; ctx.fillText("RADAR OFFLINE", centerX, centerY - 30);
+        requestAnimationFrame(drawRadar); return;
+    }
+
+    let radarColor = systemArmed ? 'rgba(255, 59, 59, 0.5)' : 'rgba(112, 184, 217, 0.5)';
+    let dangerFill = systemArmed ? 'rgba(255, 59, 59, 0.15)' : 'rgba(112, 184, 217, 0.1)';
+    let dangerRadius = (dangerZoneLimit / maxDetectDistance) * maxRadius;
+    
+    ctx.beginPath(); ctx.arc(centerX, centerY, dangerRadius, Math.PI, 2 * Math.PI);
+    ctx.fillStyle = dangerFill; ctx.fill(); ctx.strokeStyle = radarColor; ctx.lineWidth = 1; ctx.stroke();
+    
+    ctx.strokeStyle = 'rgba(112, 184, 217, 0.2)'; ctx.lineWidth = 1.5;
+    for(let i=1; i<=4; i++) { ctx.beginPath(); ctx.arc(centerX, centerY, (maxRadius/4)*i, Math.PI, 2*Math.PI); ctx.stroke(); }
+    for(let a=0; a<=180; a+=30) { let r = a * Math.PI / 180; ctx.beginPath(); ctx.moveTo(centerX, centerY); ctx.lineTo(centerX + maxRadius * Math.cos(r), centerY - maxRadius * Math.sin(r)); ctx.stroke(); }
+
+    for(let i = points.length - 1; i >= 0; i--) {
+        let p = points[i]; p.alpha -= 0.008; 
+        if(p.alpha <= 0) { points.splice(i, 1); continue; }
+        let distScale = p.dist > maxDetectDistance ? maxDetectDistance : p.dist;
+        let rScale = (distScale / maxDetectDistance) * maxRadius;
+        let rad = p.angle * Math.PI / 180;
+        let px = centerX + rScale * Math.cos(rad); let py = centerY - rScale * Math.sin(rad);
+        if (p.dist < dangerZoneLimit) ctx.fillStyle = systemArmed ? `rgba(255, 59, 59, ${p.alpha})` : `rgba(255, 152, 0, ${p.alpha})`;
+        else ctx.fillStyle = `rgba(112, 184, 217, ${p.alpha})`;
+        ctx.beginPath(); ctx.arc(px, py, 4, 0, 2 * Math.PI); ctx.fill();
+    }
+
+    let currentRad = currentAngle * Math.PI / 180;
+    ctx.strokeStyle = 'rgba(112, 184, 217, 0.8)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(centerX, centerY); ctx.lineTo(centerX + maxRadius * Math.cos(currentRad), centerY - maxRadius * Math.sin(currentRad)); ctx.stroke();
+
+    ctx.fillStyle = '#70b8d9'; ctx.font = '12px Share Tech Mono'; ctx.textAlign = 'left';
+    ctx.fillText(`A:${currentAngle}°`, 10, 20); ctx.fillText(`D:${currentDist}cm`, 10, 35);
+    requestAnimationFrame(drawRadar); 
+ }
+
+ // ================= AWS MQTT SYSTEM =================
+ const IDENTITY_POOL_ID = 'ap-southeast-1:0c13d28a-0c86-412d-970b-5f19300ed058';
+ const REGION = 'ap-southeast-1';
+ const MQTT_ENDPOINT = 'a35unz5uuzwrpm-ats.iot.ap-southeast-1.amazonaws.com';
+ 
+ AWS.config.region = REGION;
+ AWS.config.credentials = new AWS.CognitoIdentityCredentials({ IdentityPoolId: IDENTITY_POOL_ID });
+
+ function getSigV4Url() {
+    const datetime = new Date().toISOString().replace(/[:\-]|\.\d{3}/g, '');
+    const date = datetime.substr(0, 8);
+    const credentials = AWS.config.credentials;
+    const credentialScope = date + '/' + REGION + '/iotdevicegateway/aws4_request';
+    let qs = 'X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=' + encodeURIComponent(credentials.accessKeyId + '/' + credentialScope) + '&X-Amz-Date=' + datetime + '&X-Amz-SignedHeaders=host';
+    const canonicalRequest = 'GET\n/mqtt\n' + qs + '\nhost:' + MQTT_ENDPOINT + '\n\nhost\n' + AWS.util.crypto.sha256('', 'hex');
+    const stringToSign = 'AWS4-HMAC-SHA256\n' + datetime + '\n' + credentialScope + '\n' + AWS.util.crypto.sha256(canonicalRequest, 'hex');
+    const kDate = AWS.util.crypto.hmac('AWS4' + credentials.secretAccessKey, date, 'buffer');
+    const kRegion = AWS.util.crypto.hmac(kDate, REGION, 'buffer');
+    const kService = AWS.util.crypto.hmac(kRegion, 'iotdevicegateway', 'buffer');
+    const signature = AWS.util.crypto.hmac(AWS.util.crypto.hmac(kService, 'aws4_request', 'buffer'), stringToSign, 'hex');
+    qs += '&X-Amz-Signature=' + signature;
+    if (credentials.sessionToken) qs += '&X-Amz-Security-Token=' + encodeURIComponent(credentials.sessionToken);
+    return 'wss://' + MQTT_ENDPOINT + '/mqtt?' + qs;
+ }
+
+ function connectMQTT() {
+    AWS.config.credentials.get((err) => {
+        if (err) { document.getElementById('status-txt').innerText = "AWS ERR"; return; }
+        document.getElementById('status-txt').innerText = "CONNECTING...";
+        const clientId = 'web-drone-' + Math.random().toString(16).substr(2, 8);
+        const client = new Paho.MQTT.Client(getSigV4Url(), clientId);
+        client.connect({
+            useSSL: true, timeout: 5, mqttVersion: 4,
+            onSuccess: () => {
+                document.getElementById('status-txt').innerText = "LINK ESTABLISHED";
+                document.getElementById('status-txt').style.color = "var(--safe-color)";
+                client.subscribe("drone/alert"); client.subscribe("drone/config"); 
+                globalMqttClient = client;
+            }
+        });
+
+        client.onMessageArrived = (message) => {
+            try {
+                const data = JSON.parse(message.payloadString);
+                const alertBox = document.getElementById('main-alert');
+
+                if (message.destinationName === "drone/config") {
+                    if (data.command === "TAKEOFF") { forcePatrol(); return; }
+                    if (data.command === "LAND") { droneLand(); return; }
+                    if (data.command === "ALARM_ON") { showAlarmEffect(); return; }
+                    if (data.status === "ARMED") updateRadarUI(true);
+                    else if (data.status === "DISARMED") updateRadarUI(false);
+                    return; 
+                }
+
+                if (message.destinationName === "drone/alert" && isRadarOn) {
+                    currentAngle = Number(data.angle); currentDist = Number(data.dist);
+                    document.getElementById('radar-dist').innerText = currentDist + " CM";
+
+                    if (data.hash == (data.dist * 3) % 100) { 
+                        if(currentDist < 400) points.push({ angle: currentAngle, dist: currentDist, alpha: 1.0 });
+
+                        if (currentDist > 0 && currentDist < dangerZoneLimit && systemArmed) { 
+                            alertBox.style.display = 'block';
+                            document.getElementById('cam1').style.borderColor = "var(--alert-color)";
+                            let now = new Date().getTime();
+                            if (now - lastAlertTime > 10000) { 
+                                lastAlertTime = now;
+                                fetch('/trigger_alert', { 
+                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ dist: currentDist, angle: currentAngle })
+                                });
+                            }
+                        } else { alertBox.style.display = 'none'; }
+                    }
+                }
+            } catch(e) {}
+        };
+        client.onConnectionLost = () => { setTimeout(connectMQTT, 3000); };
+    });
+ }
+ </script>
+</body>
+</html>
