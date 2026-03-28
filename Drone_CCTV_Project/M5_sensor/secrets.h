@@ -4,8 +4,8 @@
 #include <pgmspace.h>
 
 // --- Network Configuration ---
-const char* ssid = "Ja17pro"; 
-const char* password = "juju1234";
+const char* ssid = "your_wifi"; 
+const char* password = "your_password";
 const char* mqtt_server = "a35unz5uuzwrpm-ats.iot.ap-southeast-1.amazonaws.com";
 
 // --- Amazon Root CA 1 ---
